@@ -11,8 +11,12 @@ import argparse
 from pathlib import Path
 
 
-def extract_text_from_image(image_path: str) -> list:
-    """使用OCR从图片提取文字，返回 (text, bbox, confidence) 列表"""
+def extract_text_from_image(image_path: str, smart: bool = True) -> list:
+    """使用OCR从图片提取文字，返回 (text, bbox, confidence) 列表
+
+    参数:
+        smart: True = 自动尝试多种预处理方案选最佳（适合模糊/光线差的图片）
+    """
     try:
         import easyocr
     except ImportError:
@@ -21,13 +25,64 @@ def extract_text_from_image(image_path: str) -> list:
         import easyocr
 
     reader = easyocr.Reader(["ch_sim", "en"], gpu=False)
+
+    if smart:
+        return _smart_extract(image_path, reader)
+
     items = reader.readtext(image_path, detail=1, paragraph=False)
     return [(text, bbox, conf) for bbox, text, conf in items if conf > 0.25]
 
 
+def _smart_extract(image_path: str, reader) -> list:
+    """
+    智能OCR提取：尝试多种预处理策略，返回置信度最高的结果。
+    针对模糊、光线差、倾斜等场景优化。
+    """
+    import scripts.img_utils as img_utils
+
+    best_items = []
+    best_score = 0
+    best_name = "原始"
+
+    # 策略1: 直接用原图
+    try:
+        items = reader.readtext(image_path, detail=1, paragraph=False)
+        items = [(t, b, c) for t, b, c in items if c > 0.2]
+        score = sum(c for _, _, c in items) / max(len(items), 1) if items else 0
+        if score > best_score:
+            best_score, best_items, best_name = score, items, "原图"
+    except Exception:
+        pass
+
+    # 策略2-4: 使用 img_utils 的多种预处理
+    def try_method(name, method):
+        nonlocal best_items, best_score, best_name
+        try:
+            img = method(image_path)
+            fd, tmp = tempfile.mkstemp(suffix=f"_{name}.png")
+            os.close(fd)
+            img.save(tmp)
+            items = reader.readtext(tmp, detail=1, paragraph=False)
+            items = [(t, b, c) for t, b, c in items if c > 0.2]
+            score = sum(c for _, _, c in items) / max(len(items), 1) if items else 0
+            if score > best_score:
+                best_score, best_items, best_name = score, items, name
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+    try_method("自适应二值化", img_utils.preprocess_aggressive)
+    try_method("Otsu二值化", img_utils.preprocess_otsu)
+    try_method("超分辨率", lambda p: img_utils.super_resolution(img_utils.preprocess_standard(p)))
+    try_method("纠偏", lambda p: img_utils.deskew(img_utils.preprocess_standard(p)))
+
+    return best_items
+
+
 def extract_text_flat(image_path: str) -> str:
     """OCR提取纯文本（不含坐标），供AI分析使用"""
-    items = extract_text_from_image(image_path)
+    items = extract_text_from_image(image_path, smart=True)
     return "\n".join(text for text, _, _ in items)
 
 
@@ -132,21 +187,11 @@ def enhance_image(image_path: str) -> str:
     from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 
     img = Image.open(image_path)
-
-    # 转换为灰度
     img = img.convert("L")
-
-    # 自适应对比度
     img = ImageOps.autocontrast(img, cutoff=3)
-
-    # 增强对比度
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(1.5)
-
-    # 锐化
+    img = ImageEnhance.Contrast(img).enhance(1.5)
     img = img.filter(ImageFilter.SHARPEN)
 
-    # 保存到临时文件
     fd, enhanced_path = tempfile.mkstemp(suffix="_enhanced.png")
     os.close(fd)
     img.save(enhanced_path, format="PNG")
