@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# EasyOCR 模型缓存
+.EasyOCR/
+
+# 图片处理临时文件
+*_enhanced.jpg
+*_processed.jpg
+
+# Excel 临时文件
+*.xlsx
+
+# IDE
+.vscode/
+.idea/
+
+# 系统
+Thumbs.db
+.DS_Store
