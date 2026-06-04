@@ -98,7 +98,7 @@ def preprocess_otsu(image_path: str) -> Image.Image:
     """Otsu 二值化预处理（适合扫描件）"""
     img = Image.open(image_path).convert("L")
     img = upscale(img, 1.5)
-    img = sharp(img)
+    img = sharpen(img)
     img = otsu_threshold(img)
     return img
 

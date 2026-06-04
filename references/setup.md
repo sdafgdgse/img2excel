@@ -10,7 +10,7 @@
 ### 1. 安装依赖
 
 ```bash
-pip install easyocr pillow openpyxl numpy
+pip install easyocr pillow openpyxl numpy opencv-python
 ```
 
 各包作用：
@@ -21,6 +21,7 @@ pip install easyocr pillow openpyxl numpy
 | pillow | >=10.0 | 图片预处理 |
 | openpyxl | >=3.1 | Excel 文件生成 |
 | numpy | >=1.24 | 坐标数据处理 |
+| opencv-python | >=4.8 | 高级图像处理（去噪、纠偏、自适应阈值） |
 
 ### 2. 验证安装
 

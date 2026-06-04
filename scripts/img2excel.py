@@ -38,7 +38,29 @@ def _smart_extract(image_path: str, reader) -> list:
     智能OCR提取：尝试多种预处理策略，返回置信度最高的结果。
     针对模糊、光线差、倾斜等场景优化。
     """
-    import scripts.img_utils as img_utils
+    # 动态导入 img_utils（兼容不同运行方式）
+    import importlib
+    try:
+        img_utils = importlib.import_module("scripts.img_utils")
+    except ModuleNotFoundError:
+        try:
+            img_utils = importlib.import_module("img_utils")
+        except ModuleNotFoundError:
+            img_utils = None
+
+    if img_utils is None:
+        # 没有 img_utils 时回退到简单预处理
+        from PIL import Image, ImageEnhance, ImageOps
+        img = Image.open(image_path).convert("L")
+        img = ImageOps.autocontrast(img, cutoff=5)
+        img = ImageEnhance.Contrast(img).enhance(1.5)
+        fd, tmp = tempfile.mkstemp(suffix="_simple.png")
+        os.close(fd)
+        img.save(tmp)
+        items = reader.readtext(tmp, detail=1, paragraph=False)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return [(t, b, c) for t, b, c in items if c > 0.2]
 
     best_items = []
     best_score = 0
@@ -217,31 +239,21 @@ def img2excel(image_path: str, output_path: str = None) -> str:
 
     output_path = get_output_path(image_path, output_path)
 
-    print(f"[1/3] 图片预处理...")
-    enhanced = enhance_image(image_path)
+    print(f"[1/2] 智能OCR识别中（将尝试多种预处理方案）...")
+    # 直接使用智能提取（内部已包含多种预处理策略的自动择优）
+    items = extract_text_from_image(image_path, smart=True)
+    if not items:
+        raise RuntimeError("未能从图片中识别到文字。请确保图片清晰、文字可辨，或尝试重新截图。")
 
-    try:
-        print(f"[2/3] OCR识别中...")
-        items = extract_text_from_image(enhanced)
-        if not items:
-            raise RuntimeError("未能从图片中识别到文字。请确保图片清晰、文字可辨，或尝试重新截图。")
+    print(f"[2/2] 分析行列结构，生成Excel...")
+    table = detect_table_structure(items)
+    if not table:
+        raise RuntimeError("未能检测到表格结构。")
 
-        print(f"[3/3] 分析行列结构，生成Excel...")
-        table = detect_table_structure(items)
-        if not table:
-            raise RuntimeError("未能检测到表格结构。")
-
-        result = create_excel(table, output_path)
-        print(f"✅ 完成! 已生成: {result}")
-        print(f"   识别到 {len(table)} 行数据")
-        return result
-    finally:
-        # 清理临时文件
-        if os.path.exists(enhanced):
-            try:
-                os.remove(enhanced)
-            except OSError:
-                pass
+    result = create_excel(table, output_path)
+    print(f"✅ 完成! 已生成: {result}")
+    print(f"   识别到 {len(table)} 行数据")
+    return result
 
 
 if __name__ == "__main__":
